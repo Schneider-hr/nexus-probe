@@ -4,3 +4,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+
+# SQLite data written by the backend
+*.db
+*.db-journal

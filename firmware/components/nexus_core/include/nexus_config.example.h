@@ -14,3 +14,9 @@
 
 #define NEXUS_PROBE_ID "nano-1"
 #define NEXUS_PROBE_NAME "Nano Alpha"
+
+// This probe's own API key. Must match the entry for NEXUS_PROBE_ID in the
+// backend's NEXUS_PROBE_KEYS (e.g. "nano-1:<key>"). Generate one with:
+//   python -c "import secrets; print(secrets.token_urlsafe(32))"
+// Never commit the real key: nexus_config.h is git-ignored.
+#define NEXUS_PROBE_KEY "replace-with-a-long-random-key"

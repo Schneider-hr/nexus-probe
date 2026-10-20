@@ -39,6 +39,7 @@ static esp_err_t post_json(const char *path, cJSON *body)
     }
 
     esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_header(client, "X-Nexus-Probe-Key", NEXUS_PROBE_KEY);
     esp_http_client_set_post_field(client, payload, strlen(payload));
 
     esp_err_t err = esp_http_client_perform(client);
@@ -78,7 +79,11 @@ esp_err_t nexus_client_register(const char *probe_id, const char *name,
 esp_err_t nexus_client_heartbeat(const char *probe_id, int battery_pct)
 {
     cJSON *body = cJSON_CreateObject();
-    cJSON_AddNumberToObject(body, "battery_pct", battery_pct);
+    // A negative value means "no fuel gauge": leave the field out (the
+    // backend only accepts 0-100) rather than sending a made-up number.
+    if (battery_pct >= 0 && battery_pct <= 100) {
+        cJSON_AddNumberToObject(body, "battery_pct", battery_pct);
+    }
     cJSON_AddStringToObject(body, "status", "online");
 
     char path[96];

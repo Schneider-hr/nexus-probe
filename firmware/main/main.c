@@ -12,6 +12,7 @@
 #include "nexus_client.h"
 #include "nexus_config.h"
 #include "ble_tracker_detect.h"
+#include "wifi_rogue_ap_detect.h"
 
 static const char *TAG = "nexus_main";
 
@@ -25,6 +26,7 @@ static const char *TAG = "nexus_main";
 // special-casing each one.
 static const nexus_module_t *s_modules[] = {
     &ble_tracker_detect_module,
+    &wifi_rogue_ap_detect_module,
 };
 #define MODULE_COUNT (sizeof(s_modules) / sizeof(s_modules[0]))
 

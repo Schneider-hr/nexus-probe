@@ -1,4 +1,9 @@
 const API_BASE = import.meta.env.VITE_NEXUS_API_BASE ?? "http://127.0.0.1:8000";
+// Only needed when the backend sets NEXUS_READ_TOKEN. Anything in a Vite env
+// var ends up in the built JavaScript, so this keeps casual visitors out of a
+// lab setup but is not a secret: for anything real, put the dashboard behind
+// an authenticating reverse proxy instead.
+const READ_TOKEN = import.meta.env.VITE_NEXUS_READ_TOKEN as string | undefined;
 
 export interface Probe {
   probe_id: string;
@@ -37,7 +42,9 @@ export interface Alert {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: READ_TOKEN ? { Authorization: `Bearer ${READ_TOKEN}` } : undefined,
+  });
   if (!res.ok) {
     throw new Error(`${res.status} ${res.statusText}`);
   }

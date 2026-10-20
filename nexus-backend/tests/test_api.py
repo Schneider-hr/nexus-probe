@@ -8,17 +8,24 @@ from nexus_backend import api
 from nexus_backend.store import NexusStore
 
 
+TEST_KEY = "test-key-not-a-secret"
+
+
 @pytest.fixture(autouse=True)
-def fresh_store():
+def fresh_store(monkeypatch):
     """The app uses a module-level store singleton; reset it before each test
-    so tests don't leak state into each other."""
+    so tests don't leak state into each other. Also configure probe keys the
+    way a real deployment would (see test_auth.py for the auth rules)."""
     api.store = NexusStore()
+    monkeypatch.setenv("NEXUS_PROBE_KEYS", ",".join(f"{p}:{TEST_KEY}" for p in ("nano-1", "nano-2", "ghost", "nonexistent")))
+    monkeypatch.delenv("NEXUS_AUTH_DISABLED", raising=False)
+    monkeypatch.delenv("NEXUS_READ_TOKEN", raising=False)
     yield
 
 
 @pytest.fixture
 def client():
-    return TestClient(api.app)
+    return TestClient(api.app, headers={"X-Nexus-Probe-Key": TEST_KEY})
 
 
 def test_register_probe(client):
