@@ -112,6 +112,22 @@ section h2 {
 }
 .recommendation { font-size: 13px; }
 
+.correlation-trail {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.correlation-trail .k {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+  margin-right: 2px;
+}
+
 .badge {
   display: inline-block;
   font-size: 11px;

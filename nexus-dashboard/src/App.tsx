@@ -58,6 +58,14 @@ function FindingsRegister({ findings }: { findings: Finding[] }) {
             <div><span className="k">MITRE ATT&amp;CK</span>{f.mitre_attack ?? "No direct Enterprise mapping"}</div>
             <div><span className="k">Control</span>{f.control_reference}</div>
           </div>
+          {f.module === "correlated_tracker" && Array.isArray(f.raw_data.probe_ids) && (
+            <div className="correlation-trail">
+              <span className="k">Seen by</span>
+              {(f.raw_data.probe_ids as string[]).map((p) => (
+                <span key={p} className="chip">{p}</span>
+              ))}
+            </div>
+          )}
           <p className="recommendation"><strong>Recommendation:</strong> {f.recommendation}</p>
         </div>
       ))}

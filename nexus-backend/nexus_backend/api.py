@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from .auth import authenticate_probe, require_read_access
+from .correlation import record_and_check
 from .models import Alert, AlertReportRequest, FindingReportRequest, ProbeHeartbeatRequest, ProbeRegisterRequest
 from .report import render_html, to_json_dict
 from .scoring import UnknownModuleError, score_finding
@@ -105,6 +106,10 @@ def report_alert(req: AlertReportRequest, x_nexus_probe_key: str | None = Header
         raw_data=req.raw_data,
     )
     store.add_alert(alert)
+    # Cross-probe correlation: does this alert's device/BSSID now appear at
+    # enough distinct probes to escalate into a risk-register finding? See
+    # correlation.py for why this can only happen here, not on the probe.
+    record_and_check(store, alert)
     return asdict(alert)
 
 

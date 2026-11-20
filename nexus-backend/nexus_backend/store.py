@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS probes (
 );
 CREATE TABLE IF NOT EXISTS findings (risk_id TEXT PRIMARY KEY, body TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS alerts (alert_id TEXT PRIMARY KEY, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sightings (
+    mac TEXT NOT NULL, probe_id TEXT NOT NULL, timestamp TEXT NOT NULL, alert_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS escalated_macs (mac TEXT PRIMARY KEY, risk_id TEXT NOT NULL);
 """
 
 
@@ -47,6 +51,13 @@ class NexusStore:
         self.probes: dict[str, Probe] = {}
         self.risk_register = RiskRegister()
         self.alerts: list[Alert] = []
+        # device MAC (or any other MAC-formatted address, e.g. a rogue AP's
+        # BSSID) -> every (probe_id, timestamp, alert_id) sighting of it,
+        # across the whole fleet. See correlation.py for why this lives
+        # here rather than on each probe: only the backend ever sees every
+        # probe's reports together.
+        self.sightings: dict[str, list[tuple[str, datetime, str]]] = {}
+        self.escalated_macs: dict[str, str] = {}  # mac -> the risk_id already raised for it
         self._lock = threading.Lock()
         self._db: sqlite3.Connection | None = None
         self._risk_id_counter = itertools.count(1)
@@ -80,6 +91,10 @@ class NexusStore:
             alert_ids.append(alert_id)
         self._risk_id_counter = _next_counter(finding_ids)
         self._alert_id_counter = _next_counter(alert_ids)
+        for mac, probe_id, ts, alert_id in self._db.execute("SELECT mac, probe_id, timestamp, alert_id FROM sightings"):
+            self.sightings.setdefault(mac, []).append((probe_id, datetime.fromisoformat(ts), alert_id))
+        for mac, risk_id in self._db.execute("SELECT mac, risk_id FROM escalated_macs"):
+            self.escalated_macs[mac] = risk_id
 
     def _save_probe(self, p: Probe) -> None:
         if self._db is None:
@@ -163,3 +178,30 @@ class NexusStore:
 
     def recent_alerts(self, limit: int = 50) -> list[Alert]:
         return sorted(self.alerts, key=lambda a: a.timestamp, reverse=True)[:limit]
+
+    # --- sightings (cross-probe correlation; see correlation.py) ---
+
+    def record_sighting(self, mac: str, probe_id: str, timestamp: datetime, alert_id: str) -> None:
+        self.sightings.setdefault(mac, []).append((probe_id, timestamp, alert_id))
+        if self._db is None:
+            return
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO sightings VALUES (?, ?, ?, ?)",
+                (mac, probe_id, timestamp.isoformat(), alert_id),
+            )
+            self._db.commit()
+
+    def sightings_for_mac(self, mac: str, since: datetime) -> list[tuple[str, datetime, str]]:
+        return [s for s in self.sightings.get(mac, []) if s[1] >= since]
+
+    def is_escalated(self, mac: str) -> bool:
+        return mac in self.escalated_macs
+
+    def mark_escalated(self, mac: str, risk_id: str) -> None:
+        self.escalated_macs[mac] = risk_id
+        if self._db is None:
+            return
+        with self._lock:
+            self._db.execute("INSERT OR REPLACE INTO escalated_macs VALUES (?, ?)", (mac, risk_id))
+            self._db.commit()
