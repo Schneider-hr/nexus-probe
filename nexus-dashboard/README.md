@@ -1,3 +1,20 @@
+## Deploying
+
+This dashboard is served by `nexus-backend` itself in production, not as a
+separate Render service (see `render.yaml` and `nexus_backend/api.py`'s
+static mount) - one origin, one login (HTTP Basic, see
+`docs/render-deploy.md`), no CORS and no secrets baked into the JS bundle.
+
+Render's Python build image isn't guaranteed to have Node/npm, so the build
+is NOT run there. Whenever you change this dashboard's source, rebuild it
+locally and copy the result into the backend before committing/deploying:
+
+```
+npm run build
+rm -rf ../nexus-backend/nexus_backend/static
+cp -r dist ../nexus-backend/nexus_backend/static
+```
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.

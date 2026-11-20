@@ -1,6 +1,8 @@
 """End-to-end API tests against the real FastAPI app (in-process, via TestClient) —
 not mocked, this exercises the actual request/response path a probe would hit."""
 
+import base64
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,23 +11,26 @@ from nexus_backend.store import NexusStore
 
 
 TEST_KEY = "test-key-not-a-secret"
+TEST_DASHBOARD_PASSWORD = "dashboard-test-pass-not-a-secret"
 
 
 @pytest.fixture(autouse=True)
 def fresh_store(monkeypatch):
     """The app uses a module-level store singleton; reset it before each test
-    so tests don't leak state into each other. Also configure probe keys the
-    way a real deployment would (see test_auth.py for the auth rules)."""
+    so tests don't leak state into each other. Also configure probe keys and
+    a dashboard password the way a real deployment would (see test_auth.py
+    for the auth rules themselves)."""
     api.store = NexusStore()
     monkeypatch.setenv("NEXUS_PROBE_KEYS", ",".join(f"{p}:{TEST_KEY}" for p in ("nano-1", "nano-2", "ghost", "nonexistent")))
+    monkeypatch.setenv("NEXUS_DASHBOARD_PASSWORD", TEST_DASHBOARD_PASSWORD)
     monkeypatch.delenv("NEXUS_AUTH_DISABLED", raising=False)
-    monkeypatch.delenv("NEXUS_READ_TOKEN", raising=False)
     yield
 
 
 @pytest.fixture
 def client():
-    return TestClient(api.app, headers={"X-Nexus-Probe-Key": TEST_KEY})
+    basic = base64.b64encode(f"nexus:{TEST_DASHBOARD_PASSWORD}".encode()).decode()
+    return TestClient(api.app, headers={"X-Nexus-Probe-Key": TEST_KEY, "Authorization": f"Basic {basic}"})
 
 
 def test_register_probe(client):

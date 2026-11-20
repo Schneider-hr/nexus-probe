@@ -1,17 +1,27 @@
 # Render Blueprint for Nexus Probe.
 #
-# Deploys two services:
-#   nexus-backend   - FastAPI API the probes report to and the dashboard reads from
-#   nexus-dashboard - the static React dashboard, built against nexus-backend's URL
+# One service: nexus-backend (FastAPI). It serves the API probes report to
+# AND the dashboard - nexus-dashboard/dist is built locally and committed
+# into nexus-backend/nexus_backend/static (see nexus-dashboard/README.md for
+# why: Render's Python build image isn't guaranteed to have Node/npm, so
+# relying on it to build the frontend is fragile; committing the prebuilt
+# bundle keeps the Render build to a plain `pip install`, nothing else).
+# Same origin for both means no CORS needed for the dashboard itself, and
+# one login (see NEXUS_DASHBOARD_PASSWORD below) protects both the API and
+# the static dashboard files - not just a token baked into the JS bundle,
+# which anyone loading the page could read straight out of it.
 #
-# To use: in the Render dashboard, "New +" -> "Blueprint", point it at this repo.
-# Render reads this file and creates both services. You'll be prompted for the
-# envVars marked `sync: false` below - see docs/render-deploy.md for what to put there.
+# To use: in the Render dashboard, "New +" -> "Blueprint", point it at this
+# repo. Render reads this file and creates the service. You'll be prompted
+# for the envVars marked `sync: false` below - see docs/render-deploy.md for
+# what to put there.
 #
 # Free-tier notes (accepted trade-offs for this project):
 #   - NEXUS_DB_PATH points at the service's local disk, which is wiped on every
 #     redeploy/restart on the free plan. The probe/alert/finding history resets
 #     then - acceptable for a demo/test deployment, not for long-term storage.
+#     The firmware re-registers itself automatically if this happens (see
+#     main.c), so the fleet recovers on its own; only the history is lost.
 #   - Free web services spin down after 15 min idle and take ~30-60s to wake on
 #     the next request (cold start). The first probe heartbeat or dashboard load
 #     after idle time will be slow; this is normal, not a bug.
@@ -29,25 +39,9 @@ services:
         value: 3.11.9
       - key: NEXUS_DB_PATH
         value: /tmp/nexus.db
-      - key: NEXUS_CORS_ORIGINS
-        value: https://nexus-dashboard.onrender.com
       - key: NEXUS_PROBE_KEYS
         sync: false
-      - key: NEXUS_READ_TOKEN
+      - key: NEXUS_DASHBOARD_USER
+        value: nexus
+      - key: NEXUS_DASHBOARD_PASSWORD
         sync: false
-
-  - type: web
-    name: nexus-dashboard
-    runtime: static
-    rootDir: nexus-dashboard
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    envVars:
-      - key: VITE_NEXUS_API_BASE
-        value: https://nexus-backend.onrender.com
-      - key: VITE_NEXUS_READ_TOKEN
-        sync: false
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html

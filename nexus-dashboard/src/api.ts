@@ -1,9 +1,8 @@
-const API_BASE = import.meta.env.VITE_NEXUS_API_BASE ?? "http://127.0.0.1:8000";
-// Only needed when the backend sets NEXUS_READ_TOKEN. Anything in a Vite env
-// var ends up in the built JavaScript, so this keeps casual visitors out of a
-// lab setup but is not a secret: for anything real, put the dashboard behind
-// an authenticating reverse proxy instead.
-const READ_TOKEN = import.meta.env.VITE_NEXUS_READ_TOKEN as string | undefined;
+// In production this dashboard is served by the backend itself (see
+// nexus_backend/api.py's static mount), so requests are same-origin and this
+// stays empty. Local dev overrides it via .env.local to point at a backend
+// running separately on :8000.
+const API_BASE = import.meta.env.VITE_NEXUS_API_BASE ?? "";
 
 export interface Probe {
   probe_id: string;
@@ -42,9 +41,13 @@ export interface Alert {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: READ_TOKEN ? { Authorization: `Bearer ${READ_TOKEN}` } : undefined,
-  });
+  // No Authorization header needed here: fetch's default credentials mode
+  // ("same-origin") automatically attaches HTTP Basic Auth credentials the
+  // browser already cached for this origin - which it does the moment the
+  // top-level page load itself prompted for and got them (see api.py's
+  // dashboard_login_middleware). Local dev talks cross-origin to :8000,
+  // which should run with NEXUS_AUTH_DISABLED=1 so no login is needed there.
+  const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) {
     throw new Error(`${res.status} ${res.statusText}`);
   }

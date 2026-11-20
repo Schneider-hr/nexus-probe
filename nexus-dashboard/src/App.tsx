@@ -107,7 +107,8 @@ export default function App() {
       {anyError && (
         <div className="banner error">
           Can't reach the Nexus backend ({anyError}). Is it running at the configured API base? If the error
-          starts with 401, set VITE_NEXUS_READ_TOKEN to the backend's read token.
+          starts with 401, your dashboard login (browser's Basic Auth prompt) may have been cancelled or expired -
+          reload the page to be asked again.
         </div>
       )}
 
