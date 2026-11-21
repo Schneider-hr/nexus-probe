@@ -16,6 +16,7 @@
  */
 typedef struct {
     const char *name; // matches a key in the backend's module_profiles.py — must stay in sync
+    const char *severity; // "info" | "warning" | "critical" - reported to the backend alongside each alert
     esp_err_t (*init)(void);
     esp_err_t (*run)(char *out_detail, size_t out_detail_len);
 } nexus_module_t;

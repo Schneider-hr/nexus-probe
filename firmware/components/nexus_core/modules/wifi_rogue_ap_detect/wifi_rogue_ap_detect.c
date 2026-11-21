@@ -64,6 +64,7 @@ static esp_err_t wifi_rogue_ap_detect_run(char *out_detail, size_t out_detail_le
 
 const nexus_module_t wifi_rogue_ap_detect_module = {
     .name = "wifi_rogue_ap_detect",
+    .severity = "warning",
     .init = wifi_rogue_ap_detect_init,
     .run = wifi_rogue_ap_detect_run,
 };

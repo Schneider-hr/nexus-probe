@@ -226,28 +226,6 @@ static void dns_responder_task(void *arg)
         memcpy(resp + rlen, answer, sizeof(answer));
         rlen += sizeof(answer);
 
-        // TEMPORARY diagnostic: decode the queried name (DNS wire format is
-        // length-prefixed labels, e.g. 07example03com00) so we can see on
-        // the serial log whether a client's DNS queries are reaching us at
-        // all, and what it's actually asking for.
-        char qname[128];
-        size_t qi = 0;
-        int p = 12;
-        while (p < qend && qi + 1 < sizeof(qname)) {
-            int label_len = req[p++];
-            if (label_len <= 0 || p + label_len > qend) {
-                break;
-            }
-            if (qi > 0) {
-                qname[qi++] = '.';
-            }
-            for (int k = 0; k < label_len && qi + 1 < sizeof(qname); k++) {
-                qname[qi++] = (char)req[p++];
-            }
-        }
-        qname[qi] = '\0';
-        ESP_LOGI(TAG, "DNS query for '%s' from %s -> answered 192.168.4.1", qname, inet_ntoa(from.sin_addr));
-
         sendto(sock, resp, rlen, 0, (struct sockaddr *)&from, from_len);
     }
     close(sock);
@@ -270,8 +248,8 @@ static const char SETUP_PAGE[] =
 
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
-    // TEMPORARY diagnostic: confirm a client's HTTP GET actually reached us,
-    // and for what path (different OSes probe different well-known paths).
+    // Different OSes probe different well-known paths for captive-portal
+    // detection; logging which one keeps that visible without guessing.
     ESP_LOGI(TAG, "HTTP GET %s -> serving setup page", req->uri);
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, SETUP_PAGE, HTTPD_RESP_USE_STRLEN);
@@ -343,9 +321,6 @@ static esp_err_t save_post_handler(httpd_req_t *req)
         return ESP_OK;
     }
     form_get(body, "password", pass, sizeof(pass)); // open networks: empty password is valid
-
-    // TEMPORARY diagnostic: lengths only, never the actual password content.
-    ESP_LOGI(TAG, "form received: ssid='%s' (len %d), password length %d", ssid, strlen(ssid), strlen(pass));
 
     esp_err_t err = save_credentials(ssid, pass);
     if (err != ESP_OK) {

@@ -10,6 +10,7 @@
 #include "nexus_wifi.h"
 #include "ble_tracker_detect.h"
 #include "wifi_rogue_ap_detect.h"
+#include "wifi_deauth_detect.h"
 
 static const char *TAG = "nexus_main";
 
@@ -32,6 +33,7 @@ static const char *TAG = "nexus_main";
 static const nexus_module_t *s_modules[] = {
     &ble_tracker_detect_module,
     &wifi_rogue_ap_detect_module,
+    &wifi_deauth_detect_module,
 };
 #define MODULE_COUNT (sizeof(s_modules) / sizeof(s_modules[0]))
 
@@ -85,7 +87,7 @@ void app_main(void)
                 // observations -> the Alert feed). Once an audit module
                 // is added here, branch on module type and call
                 // nexus_client_report_finding() for those instead.
-                nexus_client_report_alert(NEXUS_PROBE_ID, s_modules[i]->name, detail, "warning");
+                nexus_client_report_alert(NEXUS_PROBE_ID, s_modules[i]->name, detail, s_modules[i]->severity);
             } else if (err != ESP_ERR_NOT_FOUND) {
                 ESP_LOGW(TAG, "module '%s' run failed: %s", s_modules[i]->name, esp_err_to_name(err));
             }

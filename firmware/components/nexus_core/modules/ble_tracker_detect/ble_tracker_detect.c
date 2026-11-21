@@ -225,6 +225,7 @@ static esp_err_t ble_tracker_detect_run(char *out_detail, size_t out_detail_len)
 
 const nexus_module_t ble_tracker_detect_module = {
     .name = "ble_tracker_detect",
+    .severity = "warning", // a nearby tracker could be benign (e.g. the owner's own AirTag)
     .init = ble_tracker_detect_init,
     .run = ble_tracker_detect_run,
 };
