@@ -265,25 +265,79 @@ function FindingsRegister({ findings }: { findings: Finding[] }) {
   );
 }
 
+// BLE devices (Apple Find My in particular) rotate MAC addresses, but
+// within one rotation period the same physical device reports the same MAC
+// repeatedly every scan window - collapsing those repeats into one entry
+// with a sighting count is what actually makes the feed readable instead of
+// a wall of near-identical lines. Grouped by probe+module+MAC (extracted
+// from the message text - alerts don't carry a structured device-id field,
+// see nexus_client.h) rather than by message text verbatim, since RSSI/
+// distance-band wording changes sighting to sighting even for the same device.
+const MAC_RE = /[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}/;
+
+interface AlertGroup {
+  key: string;
+  severity: string;
+  module: string;
+  probe_id: string;
+  message: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+  alert_id: string;
+}
+
+function groupAlerts(alerts: Alert[]): AlertGroup[] {
+  const groups = new Map<string, AlertGroup>();
+  for (const a of alerts) {
+    const deviceId = a.message.match(MAC_RE)?.[0] ?? a.message;
+    const key = `${a.probe_id}:${a.module}:${deviceId}`;
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, {
+        key, severity: a.severity, module: a.module, probe_id: a.probe_id,
+        message: a.message, count: 1, firstSeen: a.timestamp, lastSeen: a.timestamp, alert_id: a.alert_id,
+      });
+      continue;
+    }
+    existing.count += 1;
+    if (new Date(a.timestamp) > new Date(existing.lastSeen)) {
+      existing.lastSeen = a.timestamp;
+      existing.message = a.message;
+      existing.alert_id = a.alert_id;
+    }
+    if (new Date(a.timestamp) < new Date(existing.firstSeen)) {
+      existing.firstSeen = a.timestamp;
+    }
+  }
+  return Array.from(groups.values()).sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
+}
+
 function AlertFeed({ alerts }: { alerts: Alert[] }) {
   if (alerts.length === 0) {
     return <EmptyState text="No alerts yet." />;
   }
+  const groups = groupAlerts(alerts);
   return (
     <div className="flex flex-col gap-2">
-      {alerts.map((a) => {
-        const Icon = SEVERITY_ICON[a.severity] ?? Info;
+      {groups.map((g) => {
+        const Icon = SEVERITY_ICON[g.severity] ?? Info;
         return (
           <div
-            key={a.alert_id}
-            className={`${CARD} flex flex-wrap items-center gap-3 border-l-4 px-4 py-3 text-sm ${SEVERITY_ACCENT[a.severity] ?? SEVERITY_ACCENT.info}`}
+            key={g.key}
+            className={`${CARD} flex flex-wrap items-center gap-3 border-l-4 px-4 py-3 text-sm ${SEVERITY_ACCENT[g.severity] ?? SEVERITY_ACCENT.info}`}
           >
             <Icon className="h-4 w-4 shrink-0" />
-            <Badge text={a.severity} styles={SEVERITY_BADGE[a.severity] ?? SEVERITY_BADGE.info} />
-            <span className="flex-1 text-ink">{a.message}</span>
+            <Badge text={g.severity} styles={SEVERITY_BADGE[g.severity] ?? SEVERITY_BADGE.info} />
+            <span className="flex-1 text-ink">{g.message}</span>
+            {g.count > 1 && (
+              <span className="rounded-full bg-panel-border px-2 py-0.5 text-xs font-medium text-muted">
+                seen {g.count}x over {durationSince(g.firstSeen)}
+              </span>
+            )}
             <span className="flex items-center gap-1.5 text-xs text-muted">
-              <ModuleIcon module={a.module} className="h-3.5 w-3.5" />
-              {a.probe_id} · <TimeAgo iso={a.timestamp} />
+              <ModuleIcon module={g.module} className="h-3.5 w-3.5" />
+              {g.probe_id} · <TimeAgo iso={g.lastSeen} />
             </span>
           </div>
         );

@@ -26,6 +26,7 @@ static const char *TAG = "ble_tracker_detect";
 typedef struct {
     ble_addr_t addr;
     uint8_t seen_count;
+    int8_t last_rssi;
     bool in_use;
     bool reported;
 } tracked_device_t;
@@ -37,6 +38,7 @@ static SemaphoreHandle_t s_sync_sem;
 // window closes.
 static bool s_findmy_seen;
 static ble_addr_t s_findmy_addr;
+static int8_t s_findmy_rssi;
 static char *s_persistent_hit_detail;
 static size_t s_persistent_hit_detail_len;
 
@@ -45,6 +47,16 @@ static void addr_to_str(const ble_addr_t *addr, char *out, size_t out_len)
     snprintf(out, out_len, "%02X:%02X:%02X:%02X:%02X:%02X",
               addr->val[5], addr->val[4], addr->val[3],
               addr->val[2], addr->val[1], addr->val[0]);
+}
+
+// Rough proximity bands from raw BLE RSSI - not a real distance measurement
+// (that depends heavily on antenna/obstacles/device), just a human-readable
+// hint for the dashboard: "is this in my pocket or down the hall."
+static const char *proximity_band(int8_t rssi)
+{
+    if (rssi >= -50) return "Immediate";
+    if (rssi >= -70) return "Near";
+    return "Far";
 }
 
 // Apple's Find My network accessory format (public, documented spec):
@@ -88,10 +100,12 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
         if (is_apple_findmy(&fields) && !s_findmy_seen) {
             s_findmy_seen = true;
             s_findmy_addr = event->disc.addr;
+            s_findmy_rssi = event->disc.rssi;
         }
 
         tracked_device_t *dev = find_or_add_device(&event->disc.addr);
         if (dev != NULL) {
+            dev->last_rssi = event->disc.rssi;
             if (dev->seen_count < UINT8_MAX) {
                 dev->seen_count++;
             }
@@ -101,8 +115,8 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg)
                 char mac[18];
                 addr_to_str(&dev->addr, mac, sizeof(mac));
                 snprintf(s_persistent_hit_detail, s_persistent_hit_detail_len,
-                         "Unknown BLE device %s seen in %u consecutive scan windows",
-                         mac, dev->seen_count);
+                         "Unknown BLE device %s seen in %u consecutive scan windows (%d dBm, %s)",
+                         mac, dev->seen_count, dev->last_rssi, proximity_band(dev->last_rssi));
             }
         }
         return 0;
@@ -209,7 +223,8 @@ static esp_err_t ble_tracker_detect_run(char *out_detail, size_t out_detail_len)
         addr_to_str(&s_findmy_addr, mac, sizeof(mac));
         if (out_detail != NULL && out_detail_len > 0) {
             snprintf(out_detail, out_detail_len,
-                     "Apple Find My accessory advertising nearby (%s)", mac);
+                     "Apple Find My accessory advertising nearby (%s, %d dBm, %s)",
+                     mac, s_findmy_rssi, proximity_band(s_findmy_rssi));
         }
         return ESP_OK;
     }

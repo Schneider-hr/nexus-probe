@@ -33,6 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth import authenticate_probe, check_dashboard_auth
 from .correlation import record_and_check
 from .models import Alert, AlertReportRequest, FindingReportRequest, ProbeHeartbeatRequest, ProbeRegisterRequest
+from .notify import send_telegram_alert
 from .report import render_html, to_json_dict
 from .scoring import UnknownModuleError, score_finding
 from .store import NexusStore
@@ -105,6 +106,7 @@ def report_finding(req: FindingReportRequest, x_nexus_probe_key: str | None = He
     except UnknownModuleError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     store.add_finding(finding)
+    send_telegram_alert(f"\U0001F6A8 New {finding.rating} finding ({finding.risk_id}): {finding.title}")
     return {
         **asdict(finding),
         "likelihood": finding.likelihood.name,
@@ -132,10 +134,13 @@ def report_alert(req: AlertReportRequest, x_nexus_probe_key: str | None = Header
         raw_data=req.raw_data,
     )
     store.add_alert(alert)
+    if alert.severity == "critical":
+        send_telegram_alert(f"⚠️ Critical alert from {alert.probe_id} ({alert.module}): {alert.message}")
     # Cross-probe correlation: does this alert's device/BSSID now appear at
     # enough distinct probes to escalate into a risk-register finding? See
     # correlation.py for why this can only happen here, not on the probe.
-    record_and_check(store, alert)
+    for finding in record_and_check(store, alert):
+        send_telegram_alert(f"\U0001F6A8 New {finding.rating} finding ({finding.risk_id}): {finding.title}")
     return asdict(alert)
 
 

@@ -45,3 +45,10 @@ services:
         value: nexus
       - key: NEXUS_DASHBOARD_PASSWORD
         sync: false
+      # Optional - Telegram push for critical alerts/findings (see
+      # nexus_backend/notify.py for setup steps). Leave both unset to skip:
+      # the backend silently does nothing without them, no error either way.
+      - key: NEXUS_TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: NEXUS_TELEGRAM_CHAT_ID
+        sync: false
