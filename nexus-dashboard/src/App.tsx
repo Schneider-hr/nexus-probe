@@ -8,7 +8,63 @@ function timeAgo(iso: string): string {
   const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+// A plain "15s ago" stops being meaningful once you're reading this later
+// (a report, a screenshot, a tab left open overnight) - every relative time
+// in this dashboard also carries the real timestamp as a hover tooltip.
+function TimeAgo({ iso }: { iso: string }) {
+  return <time dateTime={iso} title={new Date(iso).toLocaleString()}>{timeAgo(iso)}</time>;
+}
+
+function durationSince(iso: string): string {
+  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  if (days > 0) return `${days}d ${hours}h`;
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function FleetSummary({ probes, findings, alerts }: { probes: Probe[]; findings: Finding[]; alerts: Alert[] }) {
+  const online = probes.filter((p) => p.status === "online").length;
+  const severityCounts = findings.reduce<Record<string, number>>((acc, f) => {
+    acc[f.rating] = (acc[f.rating] ?? 0) + 1;
+    return acc;
+  }, {});
+  const oneHourAgo = Date.now() - 3600_000;
+  const alertsLastHour = alerts.filter((a) => new Date(a.timestamp).getTime() >= oneHourAgo).length;
+
+  return (
+    <div className="summary-bar">
+      <div className="summary-stat">
+        <span className="summary-value">{online}/{probes.length}</span>
+        <span className="summary-label">probes online</span>
+      </div>
+      <div className="summary-stat">
+        <span className="summary-value">{findings.length}</span>
+        <span className="summary-label">
+          findings
+          {findings.length > 0 && (
+            <span className="severity-breakdown">
+              {(["Critical", "High", "Medium", "Low"] as const)
+                .filter((r) => severityCounts[r])
+                .map((r) => (
+                  <span key={r} className={`badge ${r.toLowerCase()}`}>{severityCounts[r]} {r}</span>
+                ))}
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="summary-stat">
+        <span className="summary-value">{alertsLastHour}</span>
+        <span className="summary-label">alerts in the last hour ({alerts.length} total)</span>
+      </div>
+    </div>
+  );
 }
 
 function ProbeFleet({ probes }: { probes: Probe[] }) {
@@ -31,8 +87,9 @@ function ProbeFleet({ probes }: { probes: Probe[] }) {
           </div>
           <div className="muted small">
             {p.battery_pct != null && p.battery_pct >= 0 ? `${p.battery_pct}% battery · ` : ""}
-            last seen {timeAgo(p.last_seen)}
+            last seen <TimeAgo iso={p.last_seen} />
           </div>
+          <div className="muted small">monitoring for {durationSince(p.first_seen)}</div>
         </div>
       ))}
     </div>
@@ -55,6 +112,7 @@ function FindingsRegister({ findings }: { findings: Finding[] }) {
           <h3>{f.title}</h3>
           <p>{f.description}</p>
           <div className="meta-grid">
+            <div><span className="k">Location</span>{f.location ?? "Not recorded"}</div>
             <div><span className="k">MITRE ATT&amp;CK</span>{f.mitre_attack ?? "No direct Enterprise mapping"}</div>
             <div><span className="k">Control</span>{f.control_reference}</div>
           </div>
@@ -83,7 +141,7 @@ function AlertFeed({ alerts }: { alerts: Alert[] }) {
         <div key={a.alert_id} className={`alert-row ${a.severity}`}>
           <span className={`badge ${a.severity}`}>{a.severity}</span>
           <span className="alert-message">{a.message}</span>
-          <span className="muted small">{a.module} · {a.probe_id} · {timeAgo(a.timestamp)}</span>
+          <span className="muted small">{a.module} · {a.probe_id} · <TimeAgo iso={a.timestamp} /></span>
         </div>
       ))}
     </div>
@@ -110,6 +168,10 @@ export default function App() {
           starts with 401, your dashboard login (browser's Basic Auth prompt) may have been cancelled or expired -
           reload the page to be asked again.
         </div>
+      )}
+
+      {!anyError && !probes.loading && !findings.loading && !alerts.loading && (
+        <FleetSummary probes={probes.data ?? []} findings={findings.data ?? []} alerts={alerts.data ?? []} />
       )}
 
       <section>
