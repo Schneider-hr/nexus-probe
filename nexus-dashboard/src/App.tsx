@@ -7,6 +7,11 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recha
 import { fetchAlerts, fetchFindings, fetchProbes, type Alert, type Finding, type Probe } from "./api";
 import { usePolling } from "./usePolling";
 
+// Shared card surface - real depth (shadow) plus a border a shade lighter
+// than the panel itself, so cards read as distinct surfaces against the
+// page background instead of blending into a flat wall of dark gray.
+const CARD = "rounded-xl border border-panel-border bg-panel shadow-lg shadow-black/40";
+
 const RATING_ORDER: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
 const RATING_BG: Record<string, string> = { Critical: "bg-critical", High: "bg-high", Medium: "bg-medium", Low: "bg-low" };
 const RATING_BORDER: Record<string, string> = {
@@ -114,10 +119,10 @@ function SectionHeader({ icon: Icon, title }: { icon: ComponentType<{ className?
 
 function StatCard({ icon: Icon, label, children }: { icon: ComponentType<{ className?: string }>; label: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-panel-border bg-panel p-4">
-      <div className="mb-2 flex items-center gap-2 text-muted">
+    <div className={`${CARD} p-5`}>
+      <div className="mb-3 flex items-center gap-2 text-muted">
         <Icon className="h-4 w-4" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider">{label}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider">{label}</span>
       </div>
       {children}
     </div>
@@ -152,12 +157,12 @@ function SeverityBar({ counts }: { counts: Record<string, number> }) {
 function ActivityChart({ alerts }: { alerts: Alert[] }) {
   const data = useMemo(() => bucketAlertsByTime(alerts), [alerts]);
   return (
-    <div className="rounded-xl border border-panel-border bg-panel p-4 sm:col-span-2 lg:col-span-2">
-      <div className="mb-2 flex items-center gap-2 text-muted">
+    <div className={`${CARD} p-5 sm:col-span-2 lg:col-span-2`}>
+      <div className="mb-3 flex items-center gap-2 text-muted">
         <Activity className="h-4 w-4" />
-        <span className="text-[11px] font-semibold uppercase tracking-wider">Alert activity (last hour)</span>
+        <span className="text-xs font-semibold uppercase tracking-wider">Alert activity (last hour)</span>
       </div>
-      <div className="h-20">
+      <div className="h-24">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
             <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#64748b" }} interval={1} axisLine={false} tickLine={false} />
@@ -184,7 +189,7 @@ function ProbeFleet({ probes }: { probes: Probe[] }) {
       {probes.map((p) => (
         <div
           key={p.probe_id}
-          className={`rounded-xl border bg-panel p-4 ${p.status === "online" ? "border-low/40" : "border-panel-border opacity-60"}`}
+          className={`${CARD} p-5 ${p.status === "online" ? "!border-low/50" : "opacity-60"}`}
         >
           <div className="mb-1 flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${p.status === "online" ? "bg-low pulse" : "bg-muted"}`} />
@@ -220,7 +225,7 @@ function FindingsRegister({ findings }: { findings: Finding[] }) {
   return (
     <div className="flex flex-col gap-3">
       {sorted.map((f) => (
-        <div key={f.risk_id} className={`rounded-xl border-l-4 bg-panel p-4 ${RATING_BORDER[f.rating]}`}>
+        <div key={f.risk_id} className={`${CARD} border-l-4 p-5 ${RATING_BORDER[f.rating]}`}>
           <div className="mb-1 flex flex-wrap items-center gap-2">
             <Badge text={f.rating} styles={RATING_BADGE[f.rating]} />
             <span className="mono text-xs text-muted">{f.risk_id} · probe {f.probe_id}</span>
@@ -271,7 +276,7 @@ function AlertFeed({ alerts }: { alerts: Alert[] }) {
         return (
           <div
             key={a.alert_id}
-            className={`flex flex-wrap items-center gap-3 rounded-lg border-l-4 bg-panel px-3.5 py-2.5 text-sm ${SEVERITY_ACCENT[a.severity] ?? SEVERITY_ACCENT.info}`}
+            className={`${CARD} flex flex-wrap items-center gap-3 border-l-4 px-4 py-3 text-sm ${SEVERITY_ACCENT[a.severity] ?? SEVERITY_ACCENT.info}`}
           >
             <Icon className="h-4 w-4 shrink-0" />
             <Badge text={a.severity} styles={SEVERITY_BADGE[a.severity] ?? SEVERITY_BADGE.info} />
@@ -308,17 +313,17 @@ export default function App() {
   const alertsLastHour = alertList.filter((a) => new Date(a.timestamp).getTime() >= oneHourAgo).length;
 
   return (
-    <div className="mx-auto max-w-5xl px-5 py-8">
-      <header className="mb-6 flex items-start justify-between">
+    <div className="mx-auto max-w-5xl px-6 py-10">
+      <header className="mb-8 flex items-start justify-between border-b border-panel-border pb-6">
         <div>
-          <div className="flex items-center gap-2">
-            <Radio className="h-6 w-6 text-info" />
-            <h1 className="text-2xl font-bold tracking-tight">Nexus</h1>
+          <div className="flex items-center gap-3">
+            <Radio className="h-8 w-8 text-info" />
+            <h1 className="text-3xl font-bold tracking-tight">Nexus</h1>
           </div>
-          <p className="mt-1 text-sm text-muted">Physical / RF security assessment fleet</p>
+          <p className="mt-1.5 text-sm text-muted">Physical / RF security assessment fleet</p>
         </div>
         {ready && (
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-low">
+          <div className="mt-2 flex items-center gap-1.5 rounded-full border border-low/30 bg-low/10 px-3 py-1 text-xs font-medium text-low">
             <span className="h-2 w-2 rounded-full bg-low pulse" />
             live
           </div>
@@ -334,24 +339,24 @@ export default function App() {
       )}
 
       {ready && (
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard icon={Wifi} label="Probes online">
-            <div className="text-2xl font-bold">{online}<span className="text-base font-normal text-muted">/{probeList.length}</span></div>
+            <div className="text-3xl font-bold">{online}<span className="text-lg font-normal text-muted">/{probeList.length}</span></div>
           </StatCard>
           <StatCard icon={ShieldAlert} label="Findings">
-            <div className="mb-2 text-2xl font-bold">{findings.data?.length ?? 0}</div>
+            <div className="mb-3 text-3xl font-bold">{findings.data?.length ?? 0}</div>
             <SeverityBar counts={severityCounts} />
           </StatCard>
           <ActivityChart alerts={alertList} />
         </div>
       )}
 
-      <section className="mb-8">
+      <section className="mb-10">
         <SectionHeader icon={Radio} title="Fleet" />
         {probes.loading ? <EmptyState text="Loading…" /> : <ProbeFleet probes={probeList} />}
       </section>
 
-      <section className="mb-8">
+      <section className="mb-10">
         <SectionHeader icon={ShieldAlert} title="Risk register" />
         {findings.loading ? <EmptyState text="Loading…" /> : <FindingsRegister findings={findings.data ?? []} />}
       </section>

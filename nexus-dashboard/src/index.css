@@ -7,11 +7,11 @@
   --color-low: #22c55e;
   --color-info: #06b6d4;
 
-  --color-bg: #0a0e14;
-  --color-panel: #121821;
-  --color-panel-border: #1f2937;
-  --color-ink: #e2e8f0;
-  --color-muted: #64748b;
+  --color-bg: #05070b;
+  --color-panel: #19222f;
+  --color-panel-border: #30415a;
+  --color-ink: #f1f5f9;
+  --color-muted: #94a3b8;
 }
 
 :root {
