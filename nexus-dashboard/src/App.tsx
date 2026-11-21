@@ -1,10 +1,14 @@
-import { useMemo, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type FormEvent } from "react";
 import {
   Radio, Wifi, Bluetooth, ShieldAlert, AlertTriangle, AlertCircle, Info,
   Battery, Clock, MapPin, Target, FileText, Radar, Activity, Bell, History,
+  ShieldCheck, Plus, X,
 } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
-import { fetchAlerts, fetchFindings, fetchProbes, type Alert, type Finding, type Probe } from "./api";
+import {
+  addTrustedDevice, fetchAlerts, fetchFindings, fetchProbes, fetchTrustedDevices, removeTrustedDevice,
+  type Alert, type Finding, type Probe, type TrustedDevice,
+} from "./api";
 import { usePolling } from "./usePolling";
 
 // Shared card surface - real depth (shadow) plus a border a shade lighter
@@ -347,6 +351,113 @@ function AlertFeed({ alerts }: { alerts: Alert[] }) {
   );
 }
 
+const MAC_FORMAT = /^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$/;
+
+// Devices the operator marks here are excluded fleet-wide from both the
+// alert feed and the correlation/escalation logic (see api.py's
+// report_alert and correlation.py) - this is how you tell the system
+// "that's just my own phone" so it stops looking like a tracker.
+function TrustedDevicesPanel() {
+  const [devices, setDevices] = useState<TrustedDevice[] | null>(null);
+  const [mac, setMac] = useState("");
+  const [label, setLabel] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => {
+    fetchTrustedDevices().then(setDevices).catch((e: Error) => setError(e.message));
+  };
+
+  useEffect(refresh, []);
+
+  async function handleAdd(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = mac.trim();
+    if (!MAC_FORMAT.test(trimmed)) {
+      setError("Enter a MAC address like AA:BB:CC:DD:EE:FF");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      await addTrustedDevice(trimmed, label.trim() || "Unlabeled");
+      setMac("");
+      setLabel("");
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemove(deviceMac: string) {
+    setBusy(true);
+    try {
+      await removeTrustedDevice(deviceMac);
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={`${CARD} p-5`}>
+      <form onSubmit={handleAdd} className="mb-4 flex flex-wrap gap-2">
+        <input
+          value={mac}
+          onChange={(e) => setMac(e.target.value)}
+          placeholder="AA:BB:CC:DD:EE:FF"
+          disabled={busy}
+          className="mono min-w-[170px] flex-1 rounded-md border border-panel-border bg-bg px-2.5 py-1.5 text-xs text-ink placeholder:text-muted/60 focus:border-info focus:outline-none"
+        />
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Label (e.g. My phone)"
+          disabled={busy}
+          className="min-w-[140px] flex-1 rounded-md border border-panel-border bg-bg px-2.5 py-1.5 text-xs text-ink placeholder:text-muted/60 focus:border-info focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="flex items-center gap-1 rounded-md bg-info/15 px-3 py-1.5 text-xs font-semibold text-info hover:bg-info/25 disabled:opacity-50"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add
+        </button>
+      </form>
+
+      {error && <p className="mb-3 text-xs text-critical">{error}</p>}
+
+      {devices === null ? (
+        <EmptyState text="Loading…" />
+      ) : devices.length === 0 ? (
+        <EmptyState text="No trusted devices - every detected device is treated as unknown." />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {devices.map((d) => (
+            <div key={d.mac} className="flex items-center justify-between rounded-lg bg-panel-border/40 px-3 py-2">
+              <div className="flex items-baseline gap-2">
+                <span className="mono text-xs text-ink">{d.mac}</span>
+                <span className="text-xs text-muted">{d.label}</span>
+              </div>
+              <button
+                onClick={() => handleRemove(d.mac)}
+                disabled={busy}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted hover:bg-critical/15 hover:text-critical disabled:opacity-50"
+              >
+                <X className="h-3 w-3" /> Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const probes = usePolling(fetchProbes, 5000);
   const findings = usePolling(fetchFindings, 5000);
@@ -416,9 +527,14 @@ export default function App() {
         {findings.loading ? <EmptyState text="Loading…" /> : <FindingsRegister findings={findings.data ?? []} />}
       </section>
 
-      <section>
+      <section className="mb-10">
         <SectionHeader icon={Bell} title={`Live alerts${alertList.length ? ` (${alertsLastHour} in the last hour)` : ""}`} />
         {alerts.loading ? <EmptyState text="Loading…" /> : <AlertFeed alerts={alertList} />}
+      </section>
+
+      <section>
+        <SectionHeader icon={ShieldCheck} title="Trusted devices" />
+        <TrustedDevicesPanel />
       </section>
     </div>
   );

@@ -16,7 +16,7 @@ import threading
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
-from .models import Alert, Probe
+from .models import Alert, Probe, TrustedDevice
 from .risk import Finding, Impact, Likelihood, RiskRegister
 
 OFFLINE_THRESHOLD = timedelta(minutes=5)
@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sightings (
 CREATE TABLE IF NOT EXISTS escalated_macs (
     mac TEXT NOT NULL, reason TEXT NOT NULL, risk_id TEXT NOT NULL, PRIMARY KEY (mac, reason)
 );
+CREATE TABLE IF NOT EXISTS trusted_devices (mac TEXT PRIMARY KEY, label TEXT NOT NULL, added_at TEXT NOT NULL);
 """
 
 
@@ -64,6 +65,9 @@ class NexusStore:
         # than one kind of evidence - e.g. both "seen by 2+ probes at once"
         # and "reappeared after a long gap" - without one blocking the other.
         self.escalated_macs: dict[tuple[str, str], str] = {}
+        # Devices the dashboard operator has marked as their own / known-
+        # benign - see models.TrustedDevice and correlation.py.
+        self.trusted_devices: dict[str, TrustedDevice] = {}
         self._lock = threading.Lock()
         self._db: sqlite3.Connection | None = None
         self._risk_id_counter = itertools.count(1)
@@ -101,6 +105,8 @@ class NexusStore:
             self.sightings.setdefault(mac, []).append((probe_id, datetime.fromisoformat(ts), alert_id))
         for mac, reason, risk_id in self._db.execute("SELECT mac, reason, risk_id FROM escalated_macs"):
             self.escalated_macs[(mac, reason)] = risk_id
+        for mac, label, added_at in self._db.execute("SELECT mac, label, added_at FROM trusted_devices"):
+            self.trusted_devices[mac] = TrustedDevice(mac=mac, label=label, added_at=datetime.fromisoformat(added_at))
 
     def _save_probe(self, p: Probe) -> None:
         if self._db is None:
@@ -211,3 +217,29 @@ class NexusStore:
         with self._lock:
             self._db.execute("INSERT OR REPLACE INTO escalated_macs VALUES (?, ?, ?)", (mac, reason, risk_id))
             self._db.commit()
+
+    # --- trusted devices (operator-managed allowlist; see models.TrustedDevice) ---
+
+    def is_trusted(self, mac: str) -> bool:
+        return mac in self.trusted_devices
+
+    def add_trusted_device(self, device: TrustedDevice) -> None:
+        self.trusted_devices[device.mac] = device
+        if self._db is None:
+            return
+        with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO trusted_devices VALUES (?, ?, ?)",
+                (device.mac, device.label, device.added_at.isoformat()),
+            )
+            self._db.commit()
+
+    def remove_trusted_device(self, mac: str) -> bool:
+        if mac not in self.trusted_devices:
+            return False
+        del self.trusted_devices[mac]
+        if self._db is not None:
+            with self._lock:
+                self._db.execute("DELETE FROM trusted_devices WHERE mac = ?", (mac,))
+                self._db.commit()
+        return True

@@ -185,9 +185,14 @@ def record_and_check(store: NexusStore, alert: Alert) -> list[Finding]:
     names both the rogue BSSID and the impersonated one), and both can clear
     the threshold in the same call, so this must not silently keep only the
     last one. Escalation fires once per device, not once per sighting: a
-    MAC already escalated is skipped on every later call."""
+    MAC already escalated is skipped on every later call. A MAC the operator
+    has marked trusted (see models.TrustedDevice) never escalates at all -
+    the owner's own phone/AirPods would otherwise look identical to a real
+    tracker simply because they're carried everywhere with the probe."""
     escalated: list[Finding] = []
     for mac in extract_macs(alert.message):
+        if store.is_trusted(mac):
+            continue
         store.record_sighting(mac, alert.probe_id, alert.timestamp, alert.alert_id)
         since = datetime.now(timezone.utc) - CORRELATION_WINDOW
         sightings = store.sightings_for_mac(mac, since=since)

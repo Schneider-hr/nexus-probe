@@ -23,6 +23,20 @@ class Probe:
 
 
 @dataclass
+class TrustedDevice:
+    """A MAC the dashboard operator has marked as their own (or otherwise
+    known-benign) - e.g. the owner's own phone or AirPods, which would
+    otherwise look identical to a real tracker/stalking pattern to the
+    correlation engine simply because the owner carries it everywhere.
+    Trusted devices are excluded from escalation and from the live alert
+    feed entirely (see correlation.py and api.py's report_alert)."""
+
+    mac: str
+    label: str
+    added_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
 class Alert:
     """A real-time event from a detection module — evidence something is
     actively happening, not a static risk-register finding. Kept as a
@@ -71,3 +85,11 @@ class AlertReportRequest(BaseModel):
     message: str = Field(min_length=1, max_length=500)
     severity: Literal["info", "warning", "critical"] = "warning"
     raw_data: dict = {}
+
+
+_Mac = Annotated[str, Field(pattern=r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")]
+
+
+class TrustedDeviceRequest(BaseModel):
+    mac: _Mac
+    label: str = Field(min_length=1, max_length=100)

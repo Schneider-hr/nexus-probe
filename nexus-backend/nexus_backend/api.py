@@ -10,6 +10,9 @@ Endpoints:
     GET  /api/v1/alerts                 - recent alert feed                                               [dashboard login]
     GET  /api/v1/report.html            - the rendered risk-register report                               [dashboard login]
     GET  /api/v1/report.json            - the same, as JSON                                               [dashboard login]
+    GET  /api/v1/trusted-devices        - list devices the operator has marked trusted                     [dashboard login]
+    POST /api/v1/trusted-devices        - mark a MAC trusted (ignored by escalation and the alert feed)    [dashboard login]
+    DELETE /api/v1/trusted-devices/{mac} - un-trust a MAC                                                  [dashboard login]
     GET  /*                             - the built dashboard (static files)                               [dashboard login]
 
 See auth.py for how probe keys and the dashboard login are configured. The
@@ -31,8 +34,16 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .auth import authenticate_probe, check_dashboard_auth
-from .correlation import record_and_check
-from .models import Alert, AlertReportRequest, FindingReportRequest, ProbeHeartbeatRequest, ProbeRegisterRequest
+from .correlation import extract_macs, record_and_check
+from .models import (
+    Alert,
+    AlertReportRequest,
+    FindingReportRequest,
+    ProbeHeartbeatRequest,
+    ProbeRegisterRequest,
+    TrustedDevice,
+    TrustedDeviceRequest,
+)
 from .notify import send_telegram_alert
 from .report import render_html, to_json_dict
 from .scoring import UnknownModuleError, score_finding
@@ -57,13 +68,25 @@ app.add_middleware(
 )
 
 
+#: Exact POST paths a probe calls, authenticated with its own probe key
+# instead of the dashboard login (checked inside each route below). Kept as
+# an explicit allowlist, not a blanket "any POST under /api/v1/" - dashboard-
+# initiated writes (e.g. managing trusted devices) are POSTs too, and those
+# must still require a real login.
+_PROBE_WRITE_PATHS = {"/api/v1/probes/register", "/api/v1/findings", "/api/v1/alerts"}
+
+
+def _is_probe_write(method: str, path: str) -> bool:
+    if method != "POST":
+        return False
+    if path in _PROBE_WRITE_PATHS:
+        return True
+    return path.startswith("/api/v1/probes/") and path.endswith("/heartbeat")
+
+
 @app.middleware("http")
 async def dashboard_login_middleware(request: Request, call_next):
-    # Probes authenticate their own POSTs with a probe key (checked inside
-    # each route below) - they never see dashboard credentials, so skip this
-    # check for them. Everything else (dashboard reads, the static dashboard
-    # files) needs a real login.
-    if request.method == "POST" and request.url.path.startswith("/api/v1/"):
+    if _is_probe_write(request.method, request.url.path):
         return await call_next(request)
 
     result = check_dashboard_auth(request.headers.get("authorization"))
@@ -133,6 +156,13 @@ def report_alert(req: AlertReportRequest, x_nexus_probe_key: str | None = Header
         severity=req.severity,
         raw_data=req.raw_data,
     )
+    # A trusted device (the operator's own phone/AirPods, say) is meant to be
+    # ignored entirely, not just excluded from escalation - if every MAC the
+    # message mentions is trusted, there's nothing untrusted left to report.
+    macs = extract_macs(alert.message)
+    if macs and all(store.is_trusted(m) for m in macs):
+        return asdict(alert)
+
     store.add_alert(alert)
     if alert.severity == "critical":
         send_telegram_alert(f"⚠️ Critical alert from {alert.probe_id} ({alert.module}): {alert.message}")
@@ -147,6 +177,25 @@ def report_alert(req: AlertReportRequest, x_nexus_probe_key: str | None = Header
 @app.get("/api/v1/alerts")
 def list_alerts(limit: int = 50):
     return [asdict(a) for a in store.recent_alerts(limit)]
+
+
+@app.get("/api/v1/trusted-devices")
+def list_trusted_devices():
+    return [asdict(d) for d in store.trusted_devices.values()]
+
+
+@app.post("/api/v1/trusted-devices")
+def add_trusted_device(req: TrustedDeviceRequest):
+    device = TrustedDevice(mac=req.mac.upper(), label=req.label)
+    store.add_trusted_device(device)
+    return asdict(device)
+
+
+@app.delete("/api/v1/trusted-devices/{mac}")
+def remove_trusted_device(mac: str):
+    if not store.remove_trusted_device(mac.upper()):
+        raise HTTPException(status_code=404, detail=f"'{mac}' is not a trusted device")
+    return {"removed": mac.upper()}
 
 
 @app.get("/api/v1/report.json")

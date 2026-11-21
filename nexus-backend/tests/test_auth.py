@@ -84,7 +84,10 @@ def test_every_write_endpoint_requires_a_key(client, monkeypatch):
         assert client.post(path, json=body, headers=good).status_code == 200, path
 
 
-READ_PATHS = ("/api/v1/probes", "/api/v1/findings", "/api/v1/alerts", "/api/v1/report.json", "/api/v1/report.html")
+READ_PATHS = (
+    "/api/v1/probes", "/api/v1/findings", "/api/v1/alerts",
+    "/api/v1/report.json", "/api/v1/report.html", "/api/v1/trusted-devices",
+)
 
 
 def test_reads_refused_when_no_dashboard_password_configured(client):
@@ -125,6 +128,18 @@ def test_probe_writes_do_not_need_dashboard_login(client, monkeypatch):
     resp = client.post("/api/v1/probes/register", json=REGISTER, headers={"X-Nexus-Probe-Key": "secret-one"})
     assert resp.status_code == 200
     assert client.get("/api/v1/probes").status_code == 401  # but reading it back still needs the dashboard login
+
+
+def test_trusted_device_writes_need_dashboard_login_unlike_probe_writes(client, monkeypatch):
+    # Managing trusted devices is a dashboard action, not a probe one, even
+    # though it's a POST/DELETE like the probe endpoints - must not fall
+    # through the "probes authenticate their own POSTs" exemption.
+    monkeypatch.setenv("NEXUS_DASHBOARD_PASSWORD", "dash-secret")
+    body = {"mac": "AA:BB:CC:11:22:33", "label": "My phone"}
+    assert client.post("/api/v1/trusted-devices", json=body).status_code == 401
+    assert client.post("/api/v1/trusted-devices", json=body, auth=("nexus", "dash-secret")).status_code == 200
+    assert client.delete("/api/v1/trusted-devices/AA:BB:CC:11:22:33").status_code == 401
+    assert client.delete("/api/v1/trusted-devices/AA:BB:CC:11:22:33", auth=("nexus", "dash-secret")).status_code == 200
 
 
 def test_probe_key_is_rate_limited(client, monkeypatch):

@@ -162,6 +162,25 @@ def test_continuous_presence_without_a_gap_does_not_escalate_as_returning():
     assert store.is_escalated(MAC_A, RETURNING_PRESENCE_REASON) is False
 
 
+def test_trusted_device_never_escalates_even_across_probes():
+    from nexus_backend.models import TrustedDevice
+
+    store = NexusStore()
+    store.register_probe("probe-1", "Nano Alpha", [])
+    store.register_probe("probe-2", "Nano Beta", [])
+    store.add_trusted_device(TrustedDevice(mac=MAC_A, label="Owner's phone"))
+
+    a1 = _alert("A1", "probe-1", f"Unknown BLE device {MAC_A} seen in 3 consecutive scan windows")
+    store.add_alert(a1)
+    assert record_and_check(store, a1) == []
+
+    a2 = _alert("A2", "probe-2", f"Unknown BLE device {MAC_A} seen in 3 consecutive scan windows")
+    store.add_alert(a2)
+    assert record_and_check(store, a2) == []  # would clear MIN_DISTINCT_PROBES if it weren't trusted
+    assert store.sightings_for_mac(MAC_A, since=datetime.now(timezone.utc) - CORRELATION_WINDOW) == []
+    assert len(store.risk_register.findings) == 0
+
+
 def test_cross_probe_and_returning_presence_can_both_fire_independently():
     # The two escalation reasons are tracked separately per device, so one
     # firing doesn't block or get confused with the other.

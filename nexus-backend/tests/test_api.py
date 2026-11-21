@@ -99,3 +99,61 @@ def test_report_json(client):
     resp = client.get("/api/v1/report.json")
     data = resp.json()
     assert data["summary_counts"]["High"] == 1
+
+
+# --- trusted devices ---
+
+TRUSTED_MAC = "AA:BB:CC:11:22:33"
+
+
+def test_add_list_and_remove_trusted_device(client):
+    resp = client.post("/api/v1/trusted-devices", json={"mac": TRUSTED_MAC, "label": "My phone"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mac"] == TRUSTED_MAC
+    assert body["label"] == "My phone"
+    assert "added_at" in body
+
+    listed = client.get("/api/v1/trusted-devices").json()
+    assert [d["mac"] for d in listed] == [TRUSTED_MAC]
+
+    assert client.delete(f"/api/v1/trusted-devices/{TRUSTED_MAC}").status_code == 200
+    assert client.get("/api/v1/trusted-devices").json() == []
+
+
+def test_removing_an_unknown_device_is_404(client):
+    assert client.delete("/api/v1/trusted-devices/00:00:00:00:00:00").status_code == 404
+
+
+def test_trusted_mac_is_stored_lowercase_input_still_matches(client):
+    client.post("/api/v1/trusted-devices", json={"mac": TRUSTED_MAC.lower(), "label": "My phone"})
+    listed = client.get("/api/v1/trusted-devices").json()
+    assert listed[0]["mac"] == TRUSTED_MAC  # normalised to uppercase regardless of input case
+    assert client.delete(f"/api/v1/trusted-devices/{TRUSTED_MAC.lower()}").status_code == 200
+
+
+def test_alert_entirely_about_a_trusted_device_is_not_stored(client):
+    client.post("/api/v1/probes/register", json={"probe_id": "nano-1", "name": "Nano Alpha", "modules": []})
+    client.post("/api/v1/trusted-devices", json={"mac": TRUSTED_MAC, "label": "My phone"})
+
+    resp = client.post("/api/v1/alerts", json={
+        "probe_id": "nano-1", "module": "ble_tracker_detect",
+        "message": f"Unknown BLE device {TRUSTED_MAC} seen in 3 consecutive scan windows",
+    })
+    assert resp.status_code == 200  # the probe still gets a normal response, just not persisted
+    assert client.get("/api/v1/alerts").json() == []
+
+
+def test_alert_about_an_untrusted_device_is_unaffected_by_unrelated_trust_entries(client):
+    client.post("/api/v1/probes/register", json={"probe_id": "nano-1", "name": "Nano Alpha", "modules": []})
+    client.post("/api/v1/trusted-devices", json={"mac": TRUSTED_MAC, "label": "My phone"})
+
+    other_mac = "AA:BB:CC:44:55:66"
+    resp = client.post("/api/v1/alerts", json={
+        "probe_id": "nano-1", "module": "ble_tracker_detect",
+        "message": f"Unknown BLE device {other_mac} seen in 3 consecutive scan windows",
+    })
+    assert resp.status_code == 200
+    alerts = client.get("/api/v1/alerts").json()
+    assert len(alerts) == 1
+    assert other_mac in alerts[0]["message"]
