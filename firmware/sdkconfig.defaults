@@ -10,3 +10,11 @@ CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
 # Enabled for the provisioning setup AP (see nexus_wifi.c) — a probe spends
 # almost all its life in station mode; AP mode is only used for the brief,
 # time-boxed setup window when no working WiFi credentials are stored yet.
+
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=2048
+# The esp_http_server default (512 bytes) is too small for a real phone
+# browser's POST to the setup form: Origin, Referer, sec-ch-ua client hints,
+# and a long User-Agent easily add up past it, even though a bare GET (with
+# fewer headers) fits fine - confirmed on real hardware, where GETs to the
+# setup page worked but the form's POST got rejected with a real HTTP 431
+# before ever reaching save_post_handler.
