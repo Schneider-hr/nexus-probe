@@ -31,3 +31,18 @@ typedef struct {
  */
 int rogue_ap_find_security_mismatch(const ap_observation_t *aps, size_t count,
                                     char *out_detail, size_t out_detail_len);
+
+/**
+ * General WiFi hygiene baseline: flags any OPEN (or WEP, same bucket)
+ * network broadcasting a visible SSID, independent of the evil-twin check
+ * above - this fires even when there's no protected twin to compare
+ * against, e.g. a single unencrypted AP sitting in range. Hidden SSIDs are
+ * ignored. Each distinct SSID is reported only once even if several open
+ * APs share it (e.g. a mesh).
+ *
+ * Returns the number of distinct open/unencrypted SSIDs found. If at least
+ * one is found and out_detail is non-NULL, a short description of the
+ * first one is written to it.
+ */
+int rogue_ap_find_open_network(const ap_observation_t *aps, size_t count,
+                               char *out_detail, size_t out_detail_len);

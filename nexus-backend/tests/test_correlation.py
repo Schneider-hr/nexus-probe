@@ -2,7 +2,10 @@ from datetime import datetime, timedelta, timezone
 
 from nexus_backend.correlation import (
     CORRELATION_WINDOW,
+    CROSS_PROBE_REASON,
     MIN_DISTINCT_PROBES,
+    RETURN_GAP,
+    RETURNING_PRESENCE_REASON,
     extract_macs,
     record_and_check,
 )
@@ -41,7 +44,7 @@ def test_single_probe_repeated_sightings_do_not_escalate():
         alert = _alert(f"A{i}", "probe-1", f"Unknown BLE device {MAC_A} seen in 3 consecutive scan windows")
         store.add_alert(alert)
         assert record_and_check(store, alert) == []
-    assert store.is_escalated(MAC_A) is False
+    assert store.is_escalated(MAC_A, CROSS_PROBE_REASON) is False
     assert len(store.risk_register.findings) == 0
 
 
@@ -64,7 +67,7 @@ def test_two_distinct_probes_escalate_to_a_finding():
     assert finding.rating == "Critical"
     assert finding.raw_data["mac"] == MAC_A
     assert finding.raw_data["probe_ids"] == ["probe-1", "probe-2"]
-    assert store.is_escalated(MAC_A) is True
+    assert store.is_escalated(MAC_A, CROSS_PROBE_REASON) is True
     assert len(store.risk_register.findings) == 1
 
 
@@ -97,7 +100,7 @@ def test_sightings_outside_the_correlation_window_do_not_count():
     findings = record_and_check(store, a2)
 
     assert findings == []  # probe-1's sighting is too old to count toward the threshold
-    assert store.is_escalated(MAC_A) is False
+    assert store.is_escalated(MAC_A, CROSS_PROBE_REASON) is False
 
 
 def test_rogue_ap_bssid_correlates_the_same_way_as_a_tracker_mac():
@@ -124,3 +127,58 @@ def test_min_distinct_probes_constant_is_at_least_two():
     # Sanity check on the threshold itself: correlation only means anything
     # once at least two physically separate probes agree.
     assert MIN_DISTINCT_PROBES >= 2
+
+
+def test_single_probe_reappearing_after_a_long_gap_escalates():
+    store = NexusStore()
+    store.register_probe("probe-1", "Nano Alpha", ["ble_tracker_detect"])
+
+    long_ago = datetime.now(timezone.utc) - RETURN_GAP - timedelta(hours=1)
+    a1 = _alert("A1", "probe-1", f"Unknown BLE device {MAC_A} seen in 3 consecutive scan windows", when=long_ago)
+    store.add_alert(a1)
+    assert record_and_check(store, a1) == []  # only one sighting so far — nothing to compare against yet
+
+    a2 = _alert("A2", "probe-1", f"Unknown BLE device {MAC_A} seen in 3 consecutive scan windows")
+    store.add_alert(a2)
+    findings = record_and_check(store, a2)
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.module == "returning_presence"
+    assert finding.raw_data["mac"] == MAC_A
+    assert store.is_escalated(MAC_A, RETURNING_PRESENCE_REASON) is True
+
+
+def test_continuous_presence_without_a_gap_does_not_escalate_as_returning():
+    store = NexusStore()
+    store.register_probe("probe-1", "Nano Alpha", ["ble_tracker_detect"])
+    # Several sightings close together (well under RETURN_GAP apart) should
+    # never look like "disappeared and came back" - that's what the
+    # single-probe persistence check on the probe itself already handles.
+    for i in range(4):
+        alert = _alert(f"A{i}", "probe-1", f"Unknown BLE device {MAC_A} seen in 3 consecutive scan windows")
+        store.add_alert(alert)
+        assert record_and_check(store, alert) == []
+    assert store.is_escalated(MAC_A, RETURNING_PRESENCE_REASON) is False
+
+
+def test_cross_probe_and_returning_presence_can_both_fire_independently():
+    # The two escalation reasons are tracked separately per device, so one
+    # firing doesn't block or get confused with the other.
+    store = NexusStore()
+    store.register_probe("probe-1", "Nano Alpha", [])
+    store.register_probe("probe-2", "Nano Beta", [])
+
+    long_ago = datetime.now(timezone.utc) - RETURN_GAP - timedelta(hours=1)
+    a1 = _alert("A1", "probe-1", f"Unknown BLE device {MAC_A} seen in 3 consecutive scan windows", when=long_ago)
+    store.add_alert(a1)
+    record_and_check(store, a1)
+
+    a2 = _alert("A2", "probe-2", f"Unknown BLE device {MAC_A} seen in 3 consecutive scan windows")
+    store.add_alert(a2)
+    findings = record_and_check(store, a2)
+
+    reasons = {f.module for f in findings}
+    assert reasons == {"correlated_tracker", "returning_presence"}
+    assert store.is_escalated(MAC_A, CROSS_PROBE_REASON) is True
+    assert store.is_escalated(MAC_A, RETURNING_PRESENCE_REASON) is True

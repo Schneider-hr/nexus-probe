@@ -13,9 +13,10 @@ for instance) often genuinely fall outside it. Forcing a bad mapping would
 be less honest than saying there isn't one.
 
 Not every module in the risk register is probe-reported. "correlated_tracker"
-findings are synthesized by the backend itself (see correlation.py) when the
-same device is seen by more than one probe — there is no probe-side request
-for it and so no profile entry here; its Finding fields are built directly
+(the same device seen by more than one probe at once) and "returning_presence"
+(the same device seen again after a long gap) findings are both synthesized
+by the backend itself (see correlation.py) — there is no probe-side request
+for either, so no profile entry here; their Finding fields are built directly
 in correlation.py instead.
 """
 

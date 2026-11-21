@@ -31,7 +31,9 @@ CREATE TABLE IF NOT EXISTS alerts (alert_id TEXT PRIMARY KEY, body TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS sightings (
     mac TEXT NOT NULL, probe_id TEXT NOT NULL, timestamp TEXT NOT NULL, alert_id TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS escalated_macs (mac TEXT PRIMARY KEY, risk_id TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS escalated_macs (
+    mac TEXT NOT NULL, reason TEXT NOT NULL, risk_id TEXT NOT NULL, PRIMARY KEY (mac, reason)
+);
 """
 
 
@@ -57,7 +59,11 @@ class NexusStore:
         # here rather than on each probe: only the backend ever sees every
         # probe's reports together.
         self.sightings: dict[str, list[tuple[str, datetime, str]]] = {}
-        self.escalated_macs: dict[str, str] = {}  # mac -> the risk_id already raised for it
+        # (mac, reason) -> the risk_id already raised for it. Keyed by reason
+        # too (not just mac) so a device can independently escalate for more
+        # than one kind of evidence - e.g. both "seen by 2+ probes at once"
+        # and "reappeared after a long gap" - without one blocking the other.
+        self.escalated_macs: dict[tuple[str, str], str] = {}
         self._lock = threading.Lock()
         self._db: sqlite3.Connection | None = None
         self._risk_id_counter = itertools.count(1)
@@ -93,8 +99,8 @@ class NexusStore:
         self._alert_id_counter = _next_counter(alert_ids)
         for mac, probe_id, ts, alert_id in self._db.execute("SELECT mac, probe_id, timestamp, alert_id FROM sightings"):
             self.sightings.setdefault(mac, []).append((probe_id, datetime.fromisoformat(ts), alert_id))
-        for mac, risk_id in self._db.execute("SELECT mac, risk_id FROM escalated_macs"):
-            self.escalated_macs[mac] = risk_id
+        for mac, reason, risk_id in self._db.execute("SELECT mac, reason, risk_id FROM escalated_macs"):
+            self.escalated_macs[(mac, reason)] = risk_id
 
     def _save_probe(self, p: Probe) -> None:
         if self._db is None:
@@ -195,13 +201,13 @@ class NexusStore:
     def sightings_for_mac(self, mac: str, since: datetime) -> list[tuple[str, datetime, str]]:
         return [s for s in self.sightings.get(mac, []) if s[1] >= since]
 
-    def is_escalated(self, mac: str) -> bool:
-        return mac in self.escalated_macs
+    def is_escalated(self, mac: str, reason: str) -> bool:
+        return (mac, reason) in self.escalated_macs
 
-    def mark_escalated(self, mac: str, risk_id: str) -> None:
-        self.escalated_macs[mac] = risk_id
+    def mark_escalated(self, mac: str, reason: str, risk_id: str) -> None:
+        self.escalated_macs[(mac, reason)] = risk_id
         if self._db is None:
             return
         with self._lock:
-            self._db.execute("INSERT OR REPLACE INTO escalated_macs VALUES (?, ?)", (mac, risk_id))
+            self._db.execute("INSERT OR REPLACE INTO escalated_macs VALUES (?, ?, ?)", (mac, reason, risk_id))
             self._db.commit()

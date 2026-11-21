@@ -40,6 +40,18 @@ _MAC_RE = re.compile(r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}")
 # than coincidental overlap between two probes in the same room.
 CORRELATION_WINDOW = timedelta(hours=48)
 MIN_DISTINCT_PROBES = 2
+CROSS_PROBE_REASON = "cross_probe"
+
+# A device that disappears for a long stretch and then comes back is a
+# different, weaker signal than "seen by multiple probes at once" - it could
+# be a neighbor's own stationary device simply re-entering range each day,
+# not necessarily something following the probe's owner. Still worth
+# surfacing: with only one probe deployed, this gone-overnight-then-back
+# pattern is exactly what real stalking looks like, and it's a case the
+# cross-probe check above can never catch (it needs 2+ probes; this needs
+# only one, run across time instead of across probes).
+RETURN_GAP = timedelta(hours=6)
+RETURNING_PRESENCE_REASON = "returning_presence"
 
 
 def extract_macs(message: str) -> list[str]:
@@ -109,6 +121,59 @@ def _build_finding(store: NexusStore, mac: str, sightings: list[tuple[str, datet
     )
 
 
+def _has_returned_after_gap(sightings: list[tuple[str, datetime, str]]) -> bool:
+    if len(sightings) < 2:
+        return False
+    timestamps = sorted(ts for _, ts, _ in sightings)
+    return any(b - a >= RETURN_GAP for a, b in zip(timestamps, timestamps[1:]))
+
+
+def _build_returning_presence_finding(store: NexusStore, mac: str, sightings: list[tuple[str, datetime, str]]) -> Finding:
+    probe_ids = sorted({probe_id for probe_id, _, _ in sightings})
+    first_seen = min(ts for _, ts, _ in sightings)
+    last_seen = max(ts for _, ts, _ in sightings)
+    title = f"Device {mac} seen again after a long absence"
+    description = (
+        f"{title}: first seen {first_seen.isoformat()}, most recently {last_seen.isoformat()}, "
+        f"with a gap of at least {RETURN_GAP} between sightings somewhere in between "
+        f"(probe(s): {', '.join(probe_ids)}). A device that disappears for hours and then "
+        f"reappears is consistent with something returning on a schedule - e.g. a tracker "
+        f"coming back into range each day - though it can also be a neighboring device that "
+        f"is simply stationary nearby. Weaker evidence than the same device appearing at "
+        f"multiple separate probes at once, but a pattern a single probe can still catch on "
+        f"its own, across time instead of across probes."
+    )
+    return Finding(
+        risk_id=store.next_risk_id(),
+        probe_id=probe_ids[0],
+        module="returning_presence",
+        title=title,
+        description=description,
+        location=None,
+        likelihood=Likelihood.MEDIUM,
+        impact=Impact.HIGH,
+        mitre_attack=None,
+        control_reference=(
+            "No Enterprise NIST 800-53 control governs personal physical tracking directly; "
+            "treat as a physical-security / duty-of-care incident under organizational policy."
+        ),
+        recommendation=(
+            "Review the sighting history before acting: a device that returns daily could be a "
+            "neighbor's stationary accessory rather than something tracking you. If its "
+            "appearances correlate with your own movements or routine, treat as a possible "
+            "tracking device and escalate to physical security before attempting to locate or "
+            "remove it."
+        ),
+        raw_data={
+            "mac": mac,
+            "probe_ids": probe_ids,
+            "sighting_count": len(sightings),
+            "first_seen": first_seen.isoformat(),
+            "last_seen": last_seen.isoformat(),
+        },
+    )
+
+
 def record_and_check(store: NexusStore, alert: Alert) -> list[Finding]:
     """Call once per incoming alert, after it's been stored. Records every
     MAC mentioned in its message as a sighting by that alert's probe, then
@@ -124,14 +189,21 @@ def record_and_check(store: NexusStore, alert: Alert) -> list[Finding]:
     escalated: list[Finding] = []
     for mac in extract_macs(alert.message):
         store.record_sighting(mac, alert.probe_id, alert.timestamp, alert.alert_id)
-        if store.is_escalated(mac):
-            continue
         since = datetime.now(timezone.utc) - CORRELATION_WINDOW
         sightings = store.sightings_for_mac(mac, since=since)
-        distinct_probes = {probe_id for probe_id, _, _ in sightings}
-        if len(distinct_probes) >= MIN_DISTINCT_PROBES:
-            finding = _build_finding(store, mac, sightings)
-            store.add_finding(finding)
-            store.mark_escalated(mac, finding.risk_id)
-            escalated.append(finding)
+
+        if not store.is_escalated(mac, CROSS_PROBE_REASON):
+            distinct_probes = {probe_id for probe_id, _, _ in sightings}
+            if len(distinct_probes) >= MIN_DISTINCT_PROBES:
+                finding = _build_finding(store, mac, sightings)
+                store.add_finding(finding)
+                store.mark_escalated(mac, CROSS_PROBE_REASON, finding.risk_id)
+                escalated.append(finding)
+
+        if not store.is_escalated(mac, RETURNING_PRESENCE_REASON):
+            if _has_returned_after_gap(sightings):
+                finding = _build_returning_presence_finding(store, mac, sightings)
+                store.add_finding(finding)
+                store.mark_escalated(mac, RETURNING_PRESENCE_REASON, finding.risk_id)
+                escalated.append(finding)
     return escalated

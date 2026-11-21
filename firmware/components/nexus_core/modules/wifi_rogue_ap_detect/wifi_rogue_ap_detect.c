@@ -57,9 +57,24 @@ static esp_err_t wifi_rogue_ap_detect_run(char *out_detail, size_t out_detail_le
         s_observations[i].security = classify(s_records[i].authmode);
     }
 
-    int flagged = rogue_ap_find_security_mismatch(s_observations, count, out_detail, out_detail_len);
-    ESP_LOGI(TAG, "scan saw %u access points, %d suspicious", (unsigned)count, flagged);
-    return flagged > 0 ? ESP_OK : ESP_ERR_NOT_FOUND;
+    // Evil-twin mismatch is the more specific, higher-confidence finding -
+    // check it first so a true evil-twin scenario (which inherently has an
+    // open AP in it) is reported as that, not doubled up with the generic
+    // open-network baseline check below.
+    int mismatch = rogue_ap_find_security_mismatch(s_observations, count, out_detail, out_detail_len);
+    if (mismatch > 0) {
+        ESP_LOGI(TAG, "scan saw %u access points, %d evil-twin suspect", (unsigned)count, mismatch);
+        return ESP_OK;
+    }
+
+    int open_count = rogue_ap_find_open_network(s_observations, count, out_detail, out_detail_len);
+    if (open_count > 0) {
+        ESP_LOGI(TAG, "scan saw %u access points, %d open/unencrypted", (unsigned)count, open_count);
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "scan saw %u access points, 0 suspicious", (unsigned)count);
+    return ESP_ERR_NOT_FOUND;
 }
 
 const nexus_module_t wifi_rogue_ap_detect_module = {

@@ -71,3 +71,37 @@ int rogue_ap_find_security_mismatch(const ap_observation_t *aps, size_t count,
     }
     return flagged;
 }
+
+int rogue_ap_find_open_network(const ap_observation_t *aps, size_t count,
+                               char *out_detail, size_t out_detail_len)
+{
+    int flagged = 0;
+    int first_written = 0;
+
+    for (size_t i = 0; i < count; i++) {
+        if (aps[i].ssid[0] == '\0' || aps[i].security != AP_SECURITY_OPEN) {
+            continue;
+        }
+        int seen_before = 0;
+        for (size_t k = 0; k < i; k++) {
+            if (aps[k].security == AP_SECURITY_OPEN && strcmp(aps[k].ssid, aps[i].ssid) == 0) {
+                seen_before = 1;
+                break;
+            }
+        }
+        if (seen_before) {
+            continue;
+        }
+        flagged++;
+        if (!first_written && out_detail != NULL && out_detail_len > 0) {
+            char ssid[33], mac[18];
+            sanitise(aps[i].ssid, ssid, sizeof(ssid));
+            format_mac(aps[i].bssid, mac, sizeof(mac));
+            snprintf(out_detail, out_detail_len,
+                     "Open/unencrypted network nearby: \"%s\" (%s) - traffic on it is not protected",
+                     ssid, mac);
+            first_written = 1;
+        }
+    }
+    return flagged;
+}

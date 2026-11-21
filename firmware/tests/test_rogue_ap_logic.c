@@ -84,6 +84,44 @@ static void test_empty_input(void)
     assert(rogue_ap_find_security_mismatch(NULL, 0, NULL, 0) == 0);
 }
 
+static void test_open_network_alone_is_flagged_by_open_check(void)
+{
+    // The same scenario test_open_guest_network_alone_is_not_flagged() uses
+    // for the evil-twin check (correctly 0 there - no protected twin to
+    // compare against) is exactly what the open-network baseline check
+    // exists for.
+    ap_observation_t aps[] = { ap("CafeGuest", 1, AP_SECURITY_OPEN), ap("CafeGuest", 2, AP_SECURITY_OPEN) };
+    char detail[160];
+    assert(rogue_ap_find_open_network(aps, 2, detail, sizeof(detail)) == 1);
+    assert(strstr(detail, "CafeGuest") != NULL);
+}
+
+static void test_protected_only_network_is_not_flagged_as_open(void)
+{
+    ap_observation_t aps[] = { ap("HomeMesh", 1, AP_SECURITY_PROTECTED) };
+    assert(rogue_ap_find_open_network(aps, 1, NULL, 0) == 0);
+}
+
+static void test_open_network_hidden_ssid_is_ignored(void)
+{
+    ap_observation_t aps[] = { ap("", 1, AP_SECURITY_OPEN) };
+    assert(rogue_ap_find_open_network(aps, 1, NULL, 0) == 0);
+}
+
+static void test_each_open_ssid_counted_once(void)
+{
+    ap_observation_t aps[] = {
+        ap("A", 1, AP_SECURITY_OPEN), ap("A", 2, AP_SECURITY_OPEN),
+        ap("B", 3, AP_SECURITY_OPEN), ap("C", 4, AP_SECURITY_PROTECTED),
+    };
+    assert(rogue_ap_find_open_network(aps, 4, NULL, 0) == 2);
+}
+
+static void test_open_network_empty_input(void)
+{
+    assert(rogue_ap_find_open_network(NULL, 0, NULL, 0) == 0);
+}
+
 int main(void)
 {
     test_open_twin_of_protected_network_is_flagged();
@@ -95,6 +133,11 @@ int main(void)
     test_each_ssid_counted_once_even_with_many_aps();
     test_ssid_is_sanitised_and_output_is_bounded();
     test_empty_input();
+    test_open_network_alone_is_flagged_by_open_check();
+    test_protected_only_network_is_not_flagged_as_open();
+    test_open_network_hidden_ssid_is_ignored();
+    test_each_open_ssid_counted_once();
+    test_open_network_empty_input();
     printf("all rogue-AP logic tests passed\n");
     return 0;
 }

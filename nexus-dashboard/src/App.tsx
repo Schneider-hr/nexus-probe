@@ -1,7 +1,7 @@
 import { useMemo, type ComponentType } from "react";
 import {
   Radio, Wifi, Bluetooth, ShieldAlert, AlertTriangle, AlertCircle, Info,
-  Battery, Clock, MapPin, Target, FileText, Radar, Activity, Bell,
+  Battery, Clock, MapPin, Target, FileText, Radar, Activity, Bell, History,
 } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
 import { fetchAlerts, fetchFindings, fetchProbes, type Alert, type Finding, type Probe } from "./api";
@@ -46,6 +46,7 @@ const MODULE_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   wifi_rogue_ap_detect: Wifi,
   wifi_deauth_detect: Radio,
   correlated_tracker: Radar,
+  returning_presence: History,
 };
 
 function timeAgo(iso: string): string {
